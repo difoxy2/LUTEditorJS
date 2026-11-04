@@ -51,6 +51,10 @@
   /* 讓高度根據圖片原本的比例自動縮放，絕對不會變形 */
   height: auto;
 }
+    canvas.rendering {
+        /*when canvas is rendering*/
+  opacity: 0.01;
+}
 
   #info {
     margin-top: 12px;
@@ -122,10 +126,7 @@
 <body>
 
   <h1 id='status'>High-res Canvas + Viewport Popup</h1>
-  <p>
-    Load a large image → pinch zoom.  
-    Popup always stays in the center of the current viewport.
-  </p>
+  <p>Welcome to LUTEditorJS.</p>
 
   <div class="controls">
     <input type="file" id="fileInput" accept="image/*" multiple>
@@ -147,12 +148,11 @@
     
   <!-- Popup -->
 
-    <div id="popupBox">
+    <div id="popupBox" onclick="closePopup()">
         
         
-        <button onclick="closePopup()"  style="position: absolute;right: 0px;top:0px;">✕</button>
-        
-        <div style="position: absolute;bottom: 10px;">
+        <!-- Adding onclick to child just to stop the event from reaching the parent -->
+        <div onclick="event.stopPropagation();" style="position: absolute;bottom: 10px;">
 
             In<div class="stepper-vertical">B
             <b class="b-step-btn" onclick="document.getElementById('userinput_input_b').stepUp(); onUserInputChange_values()"> ▲ </b>
@@ -225,7 +225,9 @@
     
 // ---------- --------------- ---------- //
 // -------- IntersectionObserver ------- //
-// ---------- --------------- ---------- //    
+// ---------- --------------- ---------- //
+    
+//IntersectionObserver is to check which html element is in view and out or view. its triggered everytime element is in/out or viewport
 const canvasObserver = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
     if (entry.isIntersecting) {
@@ -260,6 +262,15 @@ fileInputElem.addEventListener('change', async (e) => {
 //Loading screen
     document.body.insertAdjacentHTML('beforeend', '<div id="loading-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,1);z-index:99999;display:flex;justify-content:center;align-items:center;color:white;font:bold 2rem sans-serif;">Loading...</div>');
     let loadingscreendiv = document.getElementById('loading-overlay');
+    
+    
+//sort file by numberic
+    // 💡 關鍵：建立一個經過排序的陣列變數
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    const sortedFiles = Array.from(e.target.files).sort((a, b) => collator.compare(a.name, b.name));
+    // 💡 關鍵：將 e 裡面的 files 參照偷偷換成我們排序好的陣列
+    Object.defineProperty(e.target, 'files', { value: sortedFiles, writable: true });
+    
     
     
 // clear array and div --> promp user to select images --> file to img.src --> img.src to canvas --> append canvas to gallary div
@@ -352,7 +363,7 @@ var Module = {
 function clearCanvas(whichone){
     if(whichone=='all'){
         document.querySelectorAll('canvas').forEach(canvas => {
-        if (canvas.getContext('2d')) {canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);}
+            canvas.classList.add('rendering');
         });
         
         arrayOfUserInputs.forEach(userInputs => {  
@@ -360,7 +371,7 @@ function clearCanvas(whichone){
         
     }else{  
         let thecanvas = document.getElementById('gallery').childNodes[whichone]
-        thecanvas.getContext('2d').clearRect(0, 0, thecanvas.width, thecanvas.height);
+        thecanvas.classList.add('rendering');
         arrayOfUserInputs[whichone][9] = false;
     }
 
@@ -569,14 +580,15 @@ async function renderCanvas(whichone) {
     }
 
     // ===== 3. Show result =====
-    whichcanvas.getContext('2d').reset();
     cv.imshow(whichcanvas, dst);
+    whichcanvas.classList.remove('rendering');
 
     //saveMatAsJPEG(dst);
     dst.delete();   // free memory
     
     // Update rendered tag of userinputs
     arrayOfUserInputs[whichone][9] = true;
+    
 }
 //async function renderCanvas(whichone) {
 //    
@@ -671,7 +683,7 @@ async function downloadAsZip() {
         
         document.getElementById('downloadAsZipbtn').innerHTML = `Procesing ${i+1}/${canvases.length}`;
         
-        if (!arrayOfUserInputs[i][9]){renderCanvas[i];}
+        if (!arrayOfUserInputs[i][9]){renderCanvas(i);}
         const canvas = canvases[i];
         const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.97));
         if (blob) {
@@ -682,6 +694,11 @@ async function downloadAsZip() {
     
     //how.txt
     let how = '';
+    if (document.getElementById('checkbox_sharpenwanted').checked) { 
+        how += `UnSharpMask sigma=${document.getElementById('userinput_sharpen_sigma').valueAsNumber} amount=${document.getElementById('userinput_sharpen_amount').valueAsNumber} threshold=${document.getElementById('userinput_sharpen_threshold').valueAsNumber}`;
+        how += '\n';
+        how += '\n';
+    }
     arrayOfUserInputs.forEach((userInputs,index) => {
         how += canvases[index].dataset.filename;
         how += '\n';
