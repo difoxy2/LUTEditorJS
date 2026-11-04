@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=10.0, user-scalable=yes">
+<title>High-res Canvas + Viewport Popup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, sans-serif;
+    background: #111;
+    color: #eee;
+    padding: 16px;
+    min-height: 100vh;
+  }
+
+  h1 { font-size: 1.2rem; margin-bottom: 12px; }
+  p  { font-size: 0.95rem; opacity: 0.8; margin-bottom: 16px; }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  button {
+    padding: 12px 18px;
+    font-size: 15px;
+    border: none;
+    border-radius: 10px;
+    background: #4f46e5;
+    color: white;
+    cursor: pointer;
+  }
+        
+    button:disabled {
+        padding: 12px 18px;
+        font-size: 15px;
+        border: none;
+        border-radius: 10px;
+        background: #aaaaaa;
+        color: white;
+        cursor: pointer;
+    }
+
+    canvas {
+  /* 讓 Canvas 的顯示寬度最多只有螢幕（或父容器）的 100% */
+  max-width: 100%;
+  
+  /* 讓高度根據圖片原本的比例自動縮放，絕對不會變形 */
+  height: auto;
+}
+
+  #info {
+    margin-top: 12px;
+    font-size: 0.9rem;
+    color: #aaa;
+  }
+
+  /* ===== Popup (centered on visual viewport) ===== */
+
+ 
+
+#popupBox {
+  position: fixed;
+  left: 0;          /* important – let transform control the position */
+  top: 0;
+  /* remove the old width/height calc(100% - 10px) – JS now sets them */
+  width: auto;
+  height: auto;
+
+  background: #ffffff00;
+  color: #ffffff;
+  padding: 24px 20px;
+  border-radius: 5px;
+  text-align: center;
+  font-size: 17px;
+  box-sizing: border-box;
+  display: none;
+  color:DeepPink;
+
+  transform-origin: 0 0;
+  will-change: transform;
+}
+    
+        /* 1. 隱藏內建的小箭頭 */
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type=number] {
+      -moz-appearance: textfield;
+      border-style: none;
+      font-size: 16px;
+      width: 4ch; 
+      text-align: center;
+    }
+
+    /* 2. 核心：將整個容器變成垂直排列的 Flex 盒子 */
+    .stepper-vertical {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center; /* 讓按鈕和輸入框水平置中對齊 */
+      gap: 4px;            /* 設定元件之間的上下間距 */
+      padding: 0px 10px;
+      
+      
+    }
+
+
+    .b-step-btn {
+      cursor: pointer;
+      user-select: none;
+      font-size: 16px;
+      padding: 2px 6px;
+    }
+
+</style>
+</head>
+<body>
+
+  <h1 id='status'>High-res Canvas + Viewport Popup</h1>
+  <p>
+    Load a large image → pinch zoom.  
+    Popup always stays in the center of the current viewport.
+  </p>
+
+  <div class="controls">
+    <input type="file" id="fileInput" accept="image/*" multiple>
+    <button id="downloadAsZipbtn" onclick="downloadAsZip()">Save JPG (97 quality)</button>
+  </div>
+
+    <div id="gallery">
+          <div id="info">No image loaded yet</div>
+    </div>
+    
+    <div>
+        <input type="checkbox" id="checkbox_sharpenwanted" onclick="document.querySelectorAll('.sharpsharp').forEach(el => el.style.visibility = this.checked ? 'visible' : 'hidden');">UnSharp Mask
+        <br><br><input class="sharpsharp" aria-busy="" type="number" id="userinput_sharpen_sigma" min="1" max="20" value="1.25" onClick="this.select();" style="visibility: hidden">sigma: for gaussian blur, 3 × sigma pixels affected in blur (~1.2)
+        <br><br><input class="sharpsharp"  type="number" id="userinput_sharpen_amount" min="1" max="20" value="1.15" onClick="this.select();" style="visibility: hidden">amount: multiplyer for add back diff (~1.2)
+        <br><br><input class="sharpsharp"  type="number" id="userinput_sharpen_threshold" min="1" max="20" value="8" onClick="this.select();" style="visibility: hidden">threshold: use ori image value if diff less than threshold (3-5 for screentone; ~8 for non-screentone)
+        <br><br><button onclick="clearCanvas('all');setTimeout(()=>{whichoneInView.forEach(inviewint=>renderCanvas(inviewint));},0);">RenderCanvas</button>
+    </div>
+    
+    
+  <!-- Popup -->
+
+    <div id="popupBox">
+        
+        
+        <button onclick="closePopup()"  style="position: absolute;right: 0px;top:0px;">✕</button>
+        
+        <div style="position: absolute;bottom: 10px;">
+
+            In<div class="stepper-vertical">B
+            <b class="b-step-btn" onclick="document.getElementById('userinput_input_b').stepUp(); onUserInputChange_values()"> ▲ </b>
+            <input type="number" id="userinput_input_b" min="0" max="255" step="5" onClick="this.select();" onchange="onUserInputChange_values()">
+            <b class="b-step-btn" onclick="document.getElementById('userinput_input_b').stepDown(); onUserInputChange_values()"> ▼ </b>
+            </div>
+
+            <div class="stepper-vertical">G
+            <b class="b-step-btn" onclick="document.getElementById('userinput_input_g').stepUp(); onUserInputChange_values()"> ▲ </b>
+            <input type="number" id="userinput_input_g" min="0.05" max="10" step="0.1" onClick="this.select();" onchange="onUserInputChange_values()">
+            <b class="b-step-btn" onclick="document.getElementById('userinput_input_g').stepDown(); onUserInputChange_values()"> ▼ </b>
+            </div>
+
+            <div class="stepper-vertical">W
+            <b class="b-step-btn" onclick="document.getElementById('userinput_input_w').stepUp(); onUserInputChange_values()"> ▲ </b>
+            <input type="number" id="userinput_input_w" min="0" max="255" step="5" onClick="this.select();" onchange="onUserInputChange_values()">
+            <b class="b-step-btn" onclick="document.getElementById('userinput_input_w').stepDown(); onUserInputChange_values()"> ▼ </b>
+            </div>
+
+            Out<div class="stepper-vertical">B
+            <b class="b-step-btn" onclick="document.getElementById('userinput_output_b').stepUp(); onUserInputChange_values()"> ▲ </b>
+            <input type="number" id="userinput_output_b" min="0" max="255" step="5" onClick="this.select();" onchange="onUserInputChange_values()">
+            <b class="b-step-btn" onclick="document.getElementById('userinput_output_b').stepDown(); onUserInputChange_values()"> ▼ </b>
+            </div>
+
+            <div class="stepper-vertical">W
+            <b class="b-step-btn" onclick="document.getElementById('userinput_output_w').stepUp(); onUserInputChange_values()"> ▲ </b>
+            <input type="number" id="userinput_output_w" min="0" max="255" step="5" onClick="this.select();" onchange="onUserInputChange_values()">
+            <b class="b-step-btn" onclick="document.getElementById('userinput_output_w').stepDown(); onUserInputChange_values()"> ▼ </b>
+            </div>
+
+            <br><br>
+
+            After Level<div>
+            g    <b class="b-step-btn" onclick="document.getElementById('userinput_g_g').stepDown(); onUserInputChange_values()"> ◀ </b>
+            <input type="number" id="userinput_g_g" min="0.05" max="10" step="0.1" onClick="this.select();" onchange="onUserInputChange_values()">
+            <b class="b-step-btn" onclick="document.getElementById('userinput_g_g').stepUp(); onUserInputChange_values()"> ▶ </b>  for ⫸
+
+            <b class="b-step-btn" onclick="document.getElementById('userinput_greaterthan').stepDown(); onUserInputChange_values()">◀</b>
+            <input type="number" id="userinput_greaterthan" min="0" max="255" step="5" onClick="this.select();" onchange="onUserInputChange_values()">
+            <b class="b-step-btn" onclick="document.getElementById('userinput_greaterthan').stepUp(); onUserInputChange_values()">▶</b>  
+            </div>
+
+            <br>
+
+            g<b class="b-step-btn" onclick="document.getElementById('userinput_g_l').stepDown()"> ◀ </b>
+            <input type="number" id="userinput_g_l" min="0.05" max="10" step="0.1" onClick="this.select();" onchange="onUserInputChange_values()">
+            <b class="b-step-btn" onclick="document.getElementById('userinput_g_l').stepUp()"> ▶ </b>  for ⫷
+
+            <b class="b-step-btn" onclick="document.getElementById('userinput_lessthan').stepDown()">◀</b>
+            <input type="number" id="userinput_lessthan" min="0" max="255" step="5" onClick="this.select();" onchange="onUserInputChange_values()">
+            <b class="b-step-btn" onclick="document.getElementById('userinput_lessthan').stepUp()">▶</b>  
+            
+            <br>
+            
+            <input type="checkbox" style="width: 50px; height: 50px;" id="userinput_self" onclick="arrayOfUserInputs[this.closest('div[data-whichone]').dataset.whichone][10] = this.checked;">
+        </div>
+    </div>
+
+
+<script>
+// ---------- --------------- ---------- //
+// ------------- Variables ------------- //
+// ---------- --------------- ---------- //
+    let fileInputElem = document.getElementById('fileInput');
+    let matArr_ori = [];
+    let arrayOfUserInputs = [];   // 0)input_b 1)input_g 2)input_w 3)output_b 4)output_w 5,6)g for > n 7,8) g for < n 9)rendered 10)self?
+    let whichoneInView =[];
+
+    
+// ---------- --------------- ---------- //
+// -------- IntersectionObserver ------- //
+// ---------- --------------- ---------- //    
+const canvasObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+        whichoneInView = [entry.target.dataset.whichone, ...whichoneInView];
+        if (!arrayOfUserInputs[entry.target.dataset.whichone][9]){renderCanvas(entry.target.dataset.whichone);}
+        console.log(whichoneInView);
+    } else {
+        whichoneInView.indexOf(entry.target.dataset.whichone) > -1 ? whichoneInView.splice(whichoneInView.indexOf(entry.target.dataset.whichone), 1) : null;
+      console.log(whichoneInView);  
+    }
+  });
+}, {
+  root: null,
+  rootMargin: `${window.innerHeight*0.1}px 0px`,     // 核心：100vh 代表上下各往外擴展 1 個螢幕高度
+  threshold: 0.01
+});
+
+// Observe all elements you care about
+//canvasObserver.observe(document.getElementById('canvasOutput0'));
+
+    
+    
+    
+    
+    
+    
+    
+// ---------- --------------- ---------- //
+// ---- File Load Button, Initialize --- //
+// ---------- --------------- ---------- //
+fileInputElem.addEventListener('change', async (e) => {
+//Loading screen
+    document.body.insertAdjacentHTML('beforeend', '<div id="loading-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,1);z-index:99999;display:flex;justify-content:center;align-items:center;color:white;font:bold 2rem sans-serif;">Loading...</div>');
+    let loadingscreendiv = document.getElementById('loading-overlay');
+    
+    
+// clear array and div --> promp user to select images --> file to img.src --> img.src to canvas --> append canvas to gallary div
+
+
+    cv = (cv instanceof Promise) ? await cv : cv;     // 確保 OpenCV.js 已經完全載入
+
+    // 清空舊的畫廊div+ array x 2, mat array cannot just arr=[], need to mat.delete() every item
+    document.getElementById('gallery').innerHTML = '';
+    whichoneInView =[];
+    arrayOfUserInputs = [];
+    matArr_ori.forEach((mat) => {
+    if (mat && typeof mat.delete === 'function' && !mat.isDeleted()) {
+        mat.delete(); 
+        }
+    });
+    matArr_ori = []; 
+    
+
+    
+  
+
+    for (let a = 0; a < e.target.files.length; a++) { 
+        loadingscreendiv.innerHTML=`Loading...${a}/${e.target.files.length}`;
+        
+        arrayOfUserInputs.push([0,1,255,0,255,1,256,1,0,false,false]);
+        
+        
+        // File input to Img.src
+        let dummyImg = document.createElement('img');   
+        let imageLoadPromise = new Promise((resolve, reject) => {
+            dummyImg.onload = () => resolve();
+            dummyImg.onerror = () => reject(new Error("圖片載入失敗"));
+        });
+        let objectUrl = URL.createObjectURL(e.target.files[a]);
+        dummyImg.src = objectUrl;
+        await imageLoadPromise;
+        
+        
+        let newCanvas = document.createElement('canvas');
+        newCanvas.width = dummyImg.naturalWidth;   
+        newCanvas.height = dummyImg.naturalHeight;
+        newCanvas.dataset.filename = e.target.files[a].name;
+        newCanvas.dataset.whichone = a;
+        document.getElementById('gallery').appendChild(newCanvas);
+
+
+        // Imc.src to mat, mat convert to 1 grey channel, push mat to mat Array 讀取圖片並轉為灰階
+        let srcMat = cv.imread(dummyImg);
+        let temp_gray = new cv.Mat();
+        cv.cvtColor(srcMat, temp_gray, cv.COLOR_RGBA2GRAY);
+        matArr_ori.push(temp_gray);
+        // 【重要】釋放 srcMat 的記憶體（因為後面用不到了）
+        // 注意：千萬不要在這裡 delete(temp_gray)，因為你等一下還要用它渲染，且它已經被 push 進陣列了！
+        //temp_grey is written to memory. If delete now, matArray will point to null. temp_grey will be deleted when the matArr is deleted, see top of this function
+        srcMat.delete(); 
+
+        // 釋放記憶體，避免瀏覽器崩潰
+        URL.revokeObjectURL(objectUrl);
+
+        if(a<3){cv.imshow(newCanvas, temp_gray);} //very slow, render first 3, other render when needed
+
+        newCanvas.addEventListener('click', () => {showPopup(a)});
+        canvasObserver.observe(newCanvas);
+        
+        console.log('finish: ' + a);
+    }
+        console.log('finish file loading');
+        document.getElementById('loading-overlay')?.remove();
+}, false);
+
+    
+    
+    
+// ---------- --------------- ---------- //
+// --------------- Copied -------------- //
+// ---------- --------------- ---------- //
+var Module = {
+  // https://emscripten.org/docs/api_reference/module.html#Module.onRuntimeInitialized
+  onRuntimeInitialized() {
+    document.getElementById('status').innerHTML = 'OpenCV.js is ready.';
+  }
+};
+
+    
+    
+// ---------- --------------- ---------- //
+// --------- reset (all) canvas -------- //
+// ---------- --------------- ---------- //
+function clearCanvas(whichone){
+    if(whichone=='all'){
+        document.querySelectorAll('canvas').forEach(canvas => {
+        if (canvas.getContext('2d')) {canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);}
+        });
+        
+        arrayOfUserInputs.forEach(userInputs => {  
+        userInputs[9] = false;  });
+        
+    }else{  
+        let thecanvas = document.getElementById('gallery').childNodes[whichone]
+        thecanvas.getContext('2d').clearRect(0, 0, thecanvas.width, thecanvas.height);
+        arrayOfUserInputs[whichone][9] = false;
+    }
+
+}
+
+
+
+// ---------- --------------- ---------- //
+// ---- on popupBox User Input change -- //
+// ---------- --------------- ---------- //
+
+function onUserInputChange_values(){
+    
+    let whichone = parseInt(document.getElementById('popupBox').dataset.whichone);
+
+                    
+    let userinput_input_b=document.getElementById('userinput_input_b').valueAsNumber;
+    let userinput_input_g=document.getElementById('userinput_input_g').valueAsNumber;
+    let userinput_input_w=document.getElementById('userinput_input_w').valueAsNumber;
+    let userinput_output_b=document.getElementById('userinput_output_b').valueAsNumber;
+    let userinput_output_w=document.getElementById('userinput_output_w').valueAsNumber;
+    let userinput_g_g=document.getElementById('userinput_g_g').valueAsNumber;
+    let userinput_greaterthan=document.getElementById('userinput_greaterthan').valueAsNumber;
+    let userinput_g_l=document.getElementById('userinput_g_l').valueAsNumber;
+    let userinput_lessthan=document.getElementById('userinput_lessthan').valueAsNumber;
+    let userinput_self = document.getElementById('userinput_self').checked;
+
+    //if self? is not true, do all mode things
+    if(!userinput_self){
+        arrayOfUserInputs.forEach((userInputs, index) => {  //update arrayOfUserinputs
+            if (!userInputs[10]){   //if self? is not true, update the userinputs array. if self is true, dont touch
+                userInputs[0]= userinput_input_b
+                userInputs[1]= userinput_input_g
+                userInputs[2]= userinput_input_w
+                userInputs[3]= userinput_output_b
+                userInputs[4]= userinput_output_w
+                userInputs[5]= userinput_g_g
+                userInputs[6]= userinput_greaterthan
+                userInputs[7]= userinput_g_l
+                userInputs[8]= userinput_lessthan
+                clearCanvas(index);
+                userInputs[9]= false; //userInputs[9] is rendered?
+
+            }
+        });
+    
+        whichoneInView.forEach((inviewint) => {
+            renderCanvas(inviewint);
+        })
+    
+        
+    }else{      //if self? is true, do self mode things
+        
+        //move to whichone image
+        document.getElementById('gallery').childNodes[whichone].scrollIntoView({behavior:'instant',block:'start'});
+    
+         //update arrayOfUserinputs
+        arrayOfUserInputs[whichone][0]= userinput_input_b
+        arrayOfUserInputs[whichone][1]= userinput_input_g
+        arrayOfUserInputs[whichone][2]= userinput_input_w
+        arrayOfUserInputs[whichone][3]= userinput_output_b
+        arrayOfUserInputs[whichone][4]= userinput_output_w
+        arrayOfUserInputs[whichone][5]= userinput_g_g
+        arrayOfUserInputs[whichone][6]= userinput_greaterthan
+        arrayOfUserInputs[whichone][7]= userinput_g_l
+        arrayOfUserInputs[whichone][8]= userinput_lessthan
+        //render the canvas
+        clearCanvas(whichone);
+        arrayOfUserInputs[whichone][9]= false; //userInputs[9] is rendered?
+        renderCanvas(whichone);
+    }
+    
+        
+        
+}
+
+
+    
+    
+    
+// ---------- --------------- ---------- //
+// ----- convert User input to LUT ----- //
+// ---------- --------------- ---------- //
+function userInput2LUT(userInputs=[0,1,255,0,255,1,256,1,0,false,false]){
+    //user input is array, array index stands for:
+    // 0)   input_b 
+    // 1)   input_g 
+    // 2)   input_w 
+    // 3)   output_b 
+    // 4)   output_w 
+    // 5,6) g for > n 
+    // 7,8) g for < n 
+    // 9) renered?
+    // 10) self?
+    // these will be converted to 256 length array
+    
+    /*
+    let input_b=userInputs[0];
+    let input_g=userInputs[1];
+    let input_w=userInputs[2];
+    let output_b=userInputs[3];
+    let output_w=userInputs[4];
+    let g_g=userInputs[5];
+    let greaterthan=userInputs[6];
+    let g_l=userInputs[7];
+    let lessthan=userInputs[8];
+    */
+    
+    let input_b=userInputs[0];
+    let input_g=userInputs[1];
+    let input_w=userInputs[2];
+    let output_b=userInputs[3];
+    let output_w=userInputs[4];
+    let g_g=userInputs[5];
+    let greaterthan=userInputs[6];
+    let g_l=userInputs[7];
+    let lessthan=userInputs[8];
+    
+    let LUT = Array.from({ length: 256 }, (_, i) => { 
+        
+        //level adjustment:    [ (value - input_b / input_w - input_b)^(1/gamma)  x  (output_w - output_b) ] + output_b
+
+        let value = (i - input_b) / (input_w - input_b);
+        value = Math.max(0.0, Math.min(value, 1.0));    // 1. 正規化（限制在 0.0 到 1.0 之間）
+
+        value = Math.pow(value, 1 / input_g);    // 2. Gamma 調整
+
+        value = value * (output_w - output_b) + output_b;
+        value = Math.max(output_b, Math.min(value, output_w));    // 3. 輸出範圍縮放
+
+        
+        // gamma for > greaterthan  &  gamma for < lessthan afterwards
+
+        if (value > greaterthan) {
+            value = 255 * Math.pow(value / 255, 1 / g_g);     //gamma for > greaterthan
+        }
+        if (value < lessthan) {
+            value = 255 * Math.pow(value / 255, 1 / g_l);   //gamma for < lessthan
+        }
+
+        // 四捨五入並確保符合 8-bit 範圍 (0-255)
+        return Math.round(Math.max(0, Math.min(value, 255)));
+    });
+
+    
+    //console.log(LUT);
+    
+    return LUT;
+
+}
+    
+ 
+    
+// ---------- --------------- ---------- //
+// ------------ renderCanvas ----------- //
+// ---------- --------------- ---------- //
+async function renderCanvas(whichone) {
+    
+    let whichcanvas = document.getElementById('gallery').childNodes[whichone];
+    let src = matArr_ori[whichone]; // 灰階圖 (CV_8UC1)
+    let dst = new cv.Mat();
+    
+    
+    // ===== 1. Levels (LUT) =====
+    let lutData = new Uint8Array(userInput2LUT(arrayOfUserInputs[whichone])); 
+    let lutMat = cv.matFromArray(1, 256, cv.CV_8UC1, lutData);
+    cv.LUT(src, lutMat, dst);
+    console.log('OpenCV.js LUT finish: ' + whichone);
+    
+    lutMat.delete();
+
+    // ===== 2. Sharpen (only if wanted) =====
+    if (document.getElementById('checkbox_sharpenwanted').checked) {
+        const amount = document.getElementById('userinput_sharpen_amount').valueAsNumber;     // 建議範圍 0.9 ~ 1.4
+        const sigma = document.getElementById('userinput_sharpen_sigma').valueAsNumber;      // 建議範圍 1.1 ~ 1.4
+        const threshold = document.getElementById('userinput_sharpen_threshold').valueAsNumber;     // gradient 頁建議 7~10，screentone 頁可降到 4~6
+
+        let blurred = new cv.Mat();
+        let sharpened = new cv.Mat();
+
+        // Gaussian blur
+        cv.GaussianBlur(dst, blurred, new cv.Size(0, 0), sigma, sigma, cv.BORDER_DEFAULT);
+
+        // Unsharp Mask: sharpened = dst*(1+amount) + blurred*(-amount)
+        cv.addWeighted(dst, 1 + amount, blurred, -amount, 0, sharpened);
+
+        // Optional: threshold protection (recommended for comics)
+        if (threshold > 0) {
+            let diff = new cv.Mat();
+            let mask = new cv.Mat();
+
+            cv.absdiff(dst, blurred, diff);
+            cv.threshold(diff, mask, threshold, 255, cv.THRESH_BINARY_INV);
+            dst.copyTo(sharpened, mask);   // restore original in low-contrast areas
+
+            diff.delete();
+            mask.delete();
+        }
+
+        // Replace dst with sharpened result
+        dst.delete();
+        dst = sharpened;
+
+        blurred.delete();
+        console.log('OpenCV.js Sharpen finish: ' + whichone);
+    }
+
+    // ===== 3. Show result =====
+    whichcanvas.getContext('2d').reset();
+    cv.imshow(whichcanvas, dst);
+
+    //saveMatAsJPEG(dst);
+    dst.delete();   // free memory
+    
+    // Update rendered tag of userinputs
+    arrayOfUserInputs[whichone][9] = true;
+}
+//async function renderCanvas(whichone) {
+//    
+//    let whichcanvas = document.getElementById('gallery').childNodes[whichone];
+//
+//    let src = matArr_ori[whichone]; // 灰階圖 (CV_8UC1)
+//    let dst = new cv.Mat();
+//    
+//
+//    let lutData = new Uint8Array(userInput2LUT(arrayOfUserInputs[whichone])); 
+//
+//    // 2. 建立 1x256 的 OpenCV 矩陣（型態必須是 cv.CV_8UC1）
+//    let lutMat = cv.matFromArray(1, 256, cv.CV_8UC1, lutData);
+//
+//    cv.LUT(src, lutMat, dst);
+//
+//    console.log('OpenCV.js LUT finish: '+whichone);
+//    
+//    whichcanvas.getContext('2d').reset();
+//    cv.imshow(whichcanvas, dst);
+//    //saveMatAsJPEG(dst);
+//    dst.delete();   // free memory
+//    lutMat.delete();
+//    
+//    //Update randered tag of userinputs
+//    arrayOfUserInputs[whichone][9] = true;
+//}
+//   
+
+    
+    
+    
+    
+    
+// ---------- --------------- ---------- //
+// -------------- Sharpen -------------- //
+// ---------- --------------- ---------- //   
+//Sigma (σ) is the standard deviation of the Gaussian blur.
+//It controls how wide the blur is (i.e. the radius of the effect).
+//The practical radius of a Gaussian blur is about 3 × sigma. (around 1.2)
+//
+//amount: add back how much difference 1.15~1.35
+//
+//put the original pixels back if threshold < than number (3 ~ 5)
+
+    
+    
+function applyUnsharpMaskComic(src, amount = 1.0, sigma = 1.2, threshold = 3) {
+    // src should be grayscale or single-channel for best results
+    const blurred = new cv.Mat();
+    const dst = new cv.Mat();
+
+    // sigma ≈ 1.0–1.8 is usually ideal for this resolution
+    cv.GaussianBlur(src, blurred, new cv.Size(0, 0), sigma, sigma, cv.BORDER_DEFAULT);
+
+    // Classic unsharp mask formula
+    cv.addWeighted(src, 1.0 + amount, blurred, -amount, 0, dst);
+
+    // Optional: protect low-contrast areas (helps with paper texture & screentones)
+    if (threshold > 0) {
+    const diff = new cv.Mat();
+        cv.absdiff(src, blurred, diff);
+        const mask = new cv.Mat();
+        cv.threshold(diff, mask, threshold, 255, cv.THRESH_BINARY_INV);
+        src.copyTo(dst, mask);   // restore original where difference is small
+        diff.delete();
+        mask.delete();
+    }
+
+    blurred.delete();
+    return dst;
+}
+    
+    
+    
+    
+    
+    
+// ---------- --------------- ---------- //
+// -------- ZIP JPG 0.97 quality ------- //
+// ---------- --------------- ---------- //    
+    
+async function downloadAsZip() {
+    document.getElementById('downloadAsZipbtn').disabled=true;
+    
+    const zip = new JSZip();
+    canvases = document.getElementById('gallery').children;
+
+    
+    //put images in zip
+    for (let i = 0; i < canvases.length; i++) {
+        
+        document.getElementById('downloadAsZipbtn').innerHTML = `Procesing ${i+1}/${canvases.length}`;
+        
+        if (!arrayOfUserInputs[i][9]){renderCanvas[i];}
+        const canvas = canvases[i];
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.97));
+        if (blob) {
+            zip.file(canvas.dataset.filename, blob, { compression: "STORE" });
+        }
+    }
+
+    
+    //how.txt
+    let how = '';
+    arrayOfUserInputs.forEach((userInputs,index) => {
+        how += canvases[index].dataset.filename;
+        how += '\n';
+        how += arrayOfUserInputs[index];
+        how += '\n';
+        how += `Input(B=${arrayOfUserInputs[index][0]},G=${arrayOfUserInputs[index][1]},W=${arrayOfUserInputs[index][2]})   Output(B=${arrayOfUserInputs[index][3]},W=${arrayOfUserInputs[index][4]})   g${arrayOfUserInputs[index][5]} for > ${arrayOfUserInputs[index][6]}   g${arrayOfUserInputs[index][7]} for < ${arrayOfUserInputs[index][8]}`;
+        how += '\n\n';
+    });
+    zip.file("how.txt", how, { compression: "STORE" });
+    
+    
+    // 2. 產生 ZIP 檔案
+    const zipContent = await zip.generateAsync({ type: 'blob', compression: 'STORE'});
+    const downloadUrl = URL.createObjectURL(zipContent);
+
+    // 3. 建立並設定連結（解決 Android 相容性關鍵）
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = new Date().toLocaleString('zh-TW', { hour12: false }).replace(/[\/\s:]/g, '-');
+
+    // 針對某些 Android 瀏覽器的安全限制，加上這兩行
+    link.style.display = 'none';
+    link.target = '_blank'; // 部分流動版 Webview 必須在新分頁觸發下載
+
+    // 4. 【核心步驟】先加入畫面、觸發點擊、隨即移除
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // 5. 釋放記憶體
+    setTimeout(() => {
+    URL.revokeObjectURL(downloadUrl);
+    }, 100); 
+    
+    
+    document.getElementById('downloadAsZipbtn').innerHTML = 'Save JPG (97 quality)';
+    document.getElementById('downloadAsZipbtn').disabled=false;
+    
+}
+    
+    
+    
+    
+    
+    
+
+// ---------- --------------- ---------- //
+//vvJsCode to keep PopupBox at screen centervv//
+// ---------- --------------- ---------- //
+  const popupBox = document.getElementById('popupBox');
+
+  function showPopup(whichone) {
+    popupBox.dataset.whichone=whichone;
+    console.log('which one canvas clicked:' + whichone);
+      
+      
+    document.getElementById('userinput_input_b').value=arrayOfUserInputs[whichone][0];
+    document.getElementById('userinput_input_g').value=arrayOfUserInputs[whichone][1];
+    document.getElementById('userinput_input_w').value=arrayOfUserInputs[whichone][2];
+    document.getElementById('userinput_output_b').value=arrayOfUserInputs[whichone][3];
+    document.getElementById('userinput_output_w').value=arrayOfUserInputs[whichone][4];
+    document.getElementById('userinput_g_g').value=arrayOfUserInputs[whichone][5];
+    document.getElementById('userinput_greaterthan').value=arrayOfUserInputs[whichone][6];
+    document.getElementById('userinput_g_l').value=arrayOfUserInputs[whichone][7];
+    document.getElementById('userinput_lessthan').value=arrayOfUserInputs[whichone][8];
+    document.getElementById('userinput_self').checked=arrayOfUserInputs[whichone][10];
+      
+      
+    popupBox.style.display='block';
+    updatePopup();
+  }
+
+  function closePopup() {
+    popupBox.style.display='none';
+  }
+
+function updatePopup() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+
+  const scale = vv.scale || 1;
+  const pad = 5;                     // desired constant padding on the phone screen
+
+  // Layout gap = pad / scale  →  after browser zoom it becomes exactly `pad` on screen
+  const layoutPad = pad / scale;
+        
+  // Pre-scale size so that after scale(1/scale) the popup = visual size − 2×pad
+  popupBox.style.width  = `${(vv.width  - 2 * layoutPad) * scale}px`;
+  popupBox.style.height = `${(vv.height - 2 * layoutPad) * scale}px`;
+
+  popupBox.style.transformOrigin = '0 0';
+  popupBox.style.transform =`translate(${vv.offsetLeft + layoutPad}px, ${vv.offsetTop + layoutPad}px) scale(${1 / scale})`;
+}
+
+// keep the listeners you already have
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', updatePopup);
+  window.visualViewport.addEventListener('scroll', updatePopup);
+}
+window.addEventListener('resize', updatePopup);
+window.addEventListener('touchmove', updatePopup, { passive: true });
+
+updatePopup();   // initial call
+// ---------- --------------- ---------- //
+//^^JsCode to keep PopupBox at screen center^^//
+// ---------- --------------- ---------- //    
+        
+    
+</script>
+<script async src="opencv.js" type="text/javascript"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.2/dist/jszip.min.js"></script>
+</body>
+</html>
