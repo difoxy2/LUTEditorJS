@@ -198,13 +198,13 @@
 
             <br>
 
-            g<b class="b-step-btn" onclick="document.getElementById('userinput_g_l').stepDown()"> ◀ </b>
+            g<b class="b-step-btn" onclick="document.getElementById('userinput_g_l').stepDown(); onUserInputChange_values()"> ◀ </b>
             <input type="number" id="userinput_g_l" min="0.05" max="10" step="0.1" onClick="this.select();" onchange="onUserInputChange_values()">
-            <b class="b-step-btn" onclick="document.getElementById('userinput_g_l').stepUp()"> ▶ </b>  for ⫷
+            <b class="b-step-btn" onclick="document.getElementById('userinput_g_l').stepUp(); onUserInputChange_values()"> ▶ </b>  for ⫷
 
-            <b class="b-step-btn" onclick="document.getElementById('userinput_lessthan').stepDown()">◀</b>
+            <b class="b-step-btn" onclick="document.getElementById('userinput_lessthan').stepDown(); onUserInputChange_values()">◀</b>
             <input type="number" id="userinput_lessthan" min="0" max="255" step="5" onClick="this.select();" onchange="onUserInputChange_values()">
-            <b class="b-step-btn" onclick="document.getElementById('userinput_lessthan').stepUp()">▶</b>  
+            <b class="b-step-btn" onclick="document.getElementById('userinput_lessthan').stepUp(); onUserInputChange_values()">▶</b>  
             
             <br>
             
@@ -221,7 +221,37 @@
     let matArr_ori = [];
     let arrayOfUserInputs = [];   // 0)input_b 1)input_g 2)input_w 3)output_b 4)output_w 5,6)g for > n 7,8) g for < n 9)rendered 10)self?
     let whichoneInView =[];
+    
+    let cachedLutMat = null;    
+ 
+    
+    
+    
+    
+    
+    
+// ---------- --------------- ---------- //
+// --------------- Copied -------------- //
+// ---------- --------------- ---------- //
+var Module = {
+    // https://emscripten.org/docs/api_reference/module.html#Module.onRuntimeInitialized
+    onRuntimeInitialized() {
+        document.getElementById('status').innerHTML = 'OpenCV.js is ready.';
 
+        // 等 OpenCV 完全載入後，再安全地初始化預設的全域快取
+        if (cachedLutMat) {
+            cachedLutMat.delete();
+        }
+            cachedLutMat = cv.matFromArray(1, 256, cv.CV_8UC1, new Uint8Array(userInput2LUT([0,1,255,0,255,1,256,1,0,false,false])));
+
+    }
+};
+    
+    
+    
+    
+    
+    
     
 // ---------- --------------- ---------- //
 // -------- IntersectionObserver ------- //
@@ -231,17 +261,19 @@
 const canvasObserver = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
     if (entry.isIntersecting) {
-        whichoneInView = [entry.target.dataset.whichone, ...whichoneInView];
+        if (!whichoneInView.includes(entry.target.dataset.whichone)) {
+            whichoneInView = [entry.target.dataset.whichone, ...whichoneInView];
+        }
         if (!arrayOfUserInputs[entry.target.dataset.whichone][9]){renderCanvas(entry.target.dataset.whichone);}
-        console.log(whichoneInView);
+        console.log('whichoneInView array: ' + whichoneInView);
     } else {
         whichoneInView.indexOf(entry.target.dataset.whichone) > -1 ? whichoneInView.splice(whichoneInView.indexOf(entry.target.dataset.whichone), 1) : null;
-      console.log(whichoneInView);  
+      console.log('whichoneInView array: ' + whichoneInView);  
     }
   });
 }, {
   root: null,
-  rootMargin: `${window.innerHeight*0.1}px 0px`,     // 核心：100vh 代表上下各往外擴展 1 個螢幕高度
+  rootMargin: `${window.innerHeight*0.5}px 0px`,
   threshold: 0.01
 });
 
@@ -336,24 +368,11 @@ fileInputElem.addEventListener('change', async (e) => {
         newCanvas.addEventListener('click', () => {showPopup(a)});
         canvasObserver.observe(newCanvas);
         
-        console.log('finish: ' + a);
     }
         console.log('finish file loading');
         document.getElementById('loading-overlay')?.remove();
 }, false);
 
-    
-    
-    
-// ---------- --------------- ---------- //
-// --------------- Copied -------------- //
-// ---------- --------------- ---------- //
-var Module = {
-  // https://emscripten.org/docs/api_reference/module.html#Module.onRuntimeInitialized
-  onRuntimeInitialized() {
-    document.getElementById('status').innerHTML = 'OpenCV.js is ready.';
-  }
-};
 
     
     
@@ -370,7 +389,7 @@ function clearCanvas(whichone){
         userInputs[9] = false;  });
         
     }else{  
-        let thecanvas = document.getElementById('gallery').childNodes[whichone]
+        let thecanvas = document.getElementById('gallery').children[whichone];
         thecanvas.classList.add('rendering');
         arrayOfUserInputs[whichone][9] = false;
     }
@@ -399,6 +418,8 @@ function onUserInputChange_values(){
     let userinput_lessthan=document.getElementById('userinput_lessthan').valueAsNumber;
     let userinput_self = document.getElementById('userinput_self').checked;
 
+
+        
     //if self? is not true, do all mode things
     if(!userinput_self){
         arrayOfUserInputs.forEach((userInputs, index) => {  //update arrayOfUserinputs
@@ -417,17 +438,26 @@ function onUserInputChange_values(){
 
             }
         });
-    
+
+
+        //update cachedLutMat for renderCanvas function to not calculate lutMat for every images
+        if (cachedLutMat) {
+        cachedLutMat.delete();
+        }
+        cachedLutMat = cv.matFromArray(1, 256, cv.CV_8UC1, new Uint8Array(userInput2LUT([userinput_input_b,userinput_input_g,userinput_input_w,userinput_output_b,userinput_output_w,userinput_g_g,userinput_greaterthan,userinput_g_l,userinput_lessthan,false,false])));
+
+
+        //call renderCanvas for canvas in view
         whichoneInView.forEach((inviewint) => {
             renderCanvas(inviewint);
         })
-    
-        
+
+
     }else{      //if self? is true, do self mode things
-        
+
         //move to whichone image
-        document.getElementById('gallery').childNodes[whichone].scrollIntoView({behavior:'instant',block:'start'});
-    
+        document.getElementById('gallery').children[whichone].scrollIntoView({behavior:'instant',block:'start'});
+
          //update arrayOfUserinputs
         arrayOfUserInputs[whichone][0]= userinput_input_b
         arrayOfUserInputs[whichone][1]= userinput_input_g
@@ -443,9 +473,7 @@ function onUserInputChange_values(){
         arrayOfUserInputs[whichone][9]= false; //userInputs[9] is rendered?
         renderCanvas(whichone);
     }
-    
-        
-        
+            
 }
 
 
@@ -530,18 +558,25 @@ function userInput2LUT(userInputs=[0,1,255,0,255,1,256,1,0,false,false]){
 // ---------- --------------- ---------- //
 async function renderCanvas(whichone) {
     
-    let whichcanvas = document.getElementById('gallery').childNodes[whichone];
+    let whichcanvas = document.getElementById('gallery').children[whichone];
     let src = matArr_ori[whichone]; // 灰階圖 (CV_8UC1)
     let dst = new cv.Mat();
     
     
     // ===== 1. Levels (LUT) =====
-    let lutData = new Uint8Array(userInput2LUT(arrayOfUserInputs[whichone])); 
-    let lutMat = cv.matFromArray(1, 256, cv.CV_8UC1, lutData);
-    cv.LUT(src, lutMat, dst);
+    let lutData, lutMat
+    if(!arrayOfUserInputs[whichone][10]){   //if self? = false
+        lutMat = cachedLutMat;
+        cv.LUT(src, lutMat, dst);
+    }else{                                  //if self? = true
+        lutData = new Uint8Array(userInput2LUT(arrayOfUserInputs[whichone])); 
+        lutMat = cv.matFromArray(1, 256, cv.CV_8UC1, lutData);
+        cv.LUT(src, lutMat, dst);
+        lutMat.delete();
+    }
+
+
     console.log('OpenCV.js LUT finish: ' + whichone);
-    
-    lutMat.delete();
 
     // ===== 2. Sharpen (only if wanted) =====
     if (document.getElementById('checkbox_sharpenwanted').checked) {
@@ -589,78 +624,7 @@ async function renderCanvas(whichone) {
     // Update rendered tag of userinputs
     arrayOfUserInputs[whichone][9] = true;
     
-}
-//async function renderCanvas(whichone) {
-//    
-//    let whichcanvas = document.getElementById('gallery').childNodes[whichone];
-//
-//    let src = matArr_ori[whichone]; // 灰階圖 (CV_8UC1)
-//    let dst = new cv.Mat();
-//    
-//
-//    let lutData = new Uint8Array(userInput2LUT(arrayOfUserInputs[whichone])); 
-//
-//    // 2. 建立 1x256 的 OpenCV 矩陣（型態必須是 cv.CV_8UC1）
-//    let lutMat = cv.matFromArray(1, 256, cv.CV_8UC1, lutData);
-//
-//    cv.LUT(src, lutMat, dst);
-//
-//    console.log('OpenCV.js LUT finish: '+whichone);
-//    
-//    whichcanvas.getContext('2d').reset();
-//    cv.imshow(whichcanvas, dst);
-//    //saveMatAsJPEG(dst);
-//    dst.delete();   // free memory
-//    lutMat.delete();
-//    
-//    //Update randered tag of userinputs
-//    arrayOfUserInputs[whichone][9] = true;
-//}
-//   
-
-    
-    
-    
-    
-    
-// ---------- --------------- ---------- //
-// -------------- Sharpen -------------- //
-// ---------- --------------- ---------- //   
-//Sigma (σ) is the standard deviation of the Gaussian blur.
-//It controls how wide the blur is (i.e. the radius of the effect).
-//The practical radius of a Gaussian blur is about 3 × sigma. (around 1.2)
-//
-//amount: add back how much difference 1.15~1.35
-//
-//put the original pixels back if threshold < than number (3 ~ 5)
-
-    
-    
-function applyUnsharpMaskComic(src, amount = 1.0, sigma = 1.2, threshold = 3) {
-    // src should be grayscale or single-channel for best results
-    const blurred = new cv.Mat();
-    const dst = new cv.Mat();
-
-    // sigma ≈ 1.0–1.8 is usually ideal for this resolution
-    cv.GaussianBlur(src, blurred, new cv.Size(0, 0), sigma, sigma, cv.BORDER_DEFAULT);
-
-    // Classic unsharp mask formula
-    cv.addWeighted(src, 1.0 + amount, blurred, -amount, 0, dst);
-
-    // Optional: protect low-contrast areas (helps with paper texture & screentones)
-    if (threshold > 0) {
-    const diff = new cv.Mat();
-        cv.absdiff(src, blurred, diff);
-        const mask = new cv.Mat();
-        cv.threshold(diff, mask, threshold, 255, cv.THRESH_BINARY_INV);
-        src.copyTo(dst, mask);   // restore original where difference is small
-        diff.delete();
-        mask.delete();
-    }
-
-    blurred.delete();
-    return dst;
-}
+}   
     
     
     
@@ -675,7 +639,7 @@ async function downloadAsZip() {
     document.getElementById('downloadAsZipbtn').disabled=true;
     
     const zip = new JSZip();
-    canvases = document.getElementById('gallery').children;
+    let canvases = document.getElementById('gallery').children;
 
     
     //put images in zip
@@ -683,7 +647,7 @@ async function downloadAsZip() {
         
         document.getElementById('downloadAsZipbtn').innerHTML = `Procesing ${i+1}/${canvases.length}`;
         
-        if (!arrayOfUserInputs[i][9]){renderCanvas(i);}
+        if (!arrayOfUserInputs[i][9]){await renderCanvas(i);}
         const canvas = canvases[i];
         const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.97));
         if (blob) {
